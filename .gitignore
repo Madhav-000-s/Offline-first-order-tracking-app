@@ -1,0 +1,39 @@
+# Claude Code
+.claude/
+
+# --- Python / backend ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.db
+.env
+backend/.env
+
+# --- Android / Gradle ---
+android/.gradle/
+android/**/build/
+android/local.properties
+android/.idea/
+android/**/*.iml
+android/captures/
+android/**/.cxx/
+android/**/.externalNativeBuild/
+*.apk
+*.aab
+*.ap_
+*.dex
+android/**/google-services.json
+
+# --- General ---
+.DS_Store
+Thumbs.db
+*.log
+/scratch/
