@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, func
+from sqlalchemy import BigInteger, DateTime, func, literal_column
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,7 +21,16 @@ class SyncedMixin:
     cancelled/purged row can still be replicated to clients as "gone".
     """
 
-    version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1, server_default="1")
+    version: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=1,
+        server_default="1",
+        # Raw SQL fragment, not a Python-side value: every UPDATE this mixin's
+        # table participates in gets `SET version = version + 1` appended,
+        # computed by Postgres in the same statement as the mutation itself.
+        onupdate=literal_column("version + 1"),
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
