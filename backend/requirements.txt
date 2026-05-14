@@ -1,0 +1,20 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+pydantic==2.10.3
+pydantic-settings==2.6.1
+email-validator==2.2.0
+pyjwt==2.10.1
+bcrypt==4.2.1
+redis==5.2.1
+firebase-admin==6.6.0
+python-multipart==0.0.19
+websockets==14.1
+
+# dev / test
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.28.1
+testcontainers[postgres]==4.9.0
