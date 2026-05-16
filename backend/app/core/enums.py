@@ -45,3 +45,19 @@ def is_terminal(status: OrderStatus) -> bool:
 
 def can_transition(current: OrderStatus, target: OrderStatus) -> bool:
     return target in VALID_TRANSITIONS[current]
+
+
+# The one "happy path" successor for automatic state advancement (courier
+# simulator / dev advance endpoint). Terminal and branch states (CANCELLED,
+# REJECTED) have no automatic next step.
+_AUTO_NEXT: dict[OrderStatus, OrderStatus] = {
+    OrderStatus.PLACED: OrderStatus.ACCEPTED,
+    OrderStatus.ACCEPTED: OrderStatus.PREPARING,
+    OrderStatus.PREPARING: OrderStatus.READY,
+    OrderStatus.READY: OrderStatus.PICKED_UP,
+    OrderStatus.PICKED_UP: OrderStatus.DELIVERED,
+}
+
+
+def auto_next_status(current: OrderStatus) -> OrderStatus | None:
+    return _AUTO_NEXT.get(current)

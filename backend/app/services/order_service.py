@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -5,15 +6,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.enums import OrderStatus, can_transition, is_terminal
+from app.core.enums import OrderStatus, auto_next_status, can_transition, is_terminal
 from app.core.errors import AppError, InFlightConflict, IdempotencyConflict
 from app.db.models.menu_item import MenuItem
 from app.db.models.order import Order
 from app.db.models.order_event import OrderEvent
 from app.db.models.order_item import OrderItem
 from app.db.models.restaurant import Restaurant
+from app.db.session import AsyncSessionLocal
+from app.realtime import pubsub
+from app.realtime.fixture_routes import encode_polyline, pick_fixture_route
 from app.schemas.order import PlaceOrderRequest
-from app.services import idempotency_service
+from app.services import device_service, idempotency_service, push_service
 from app.services.mappers import order_out
 
 
@@ -80,9 +84,10 @@ async def create_order(
         placed_at=now,
         delivery_note=body.delivery_note,
         tip_minor=body.tip_minor,
-        # Route polyline is assigned from the fixture route set once the
-        # courier simulator (Phase 4) picks the order up.
-        route_polyline=None,
+        # Precomputed now, from a fixture route set, so there's no external
+        # routing API dependency later when the courier simulator walks it
+        # (DESIGN.md §14.4).
+        route_polyline=encode_polyline(pick_fixture_route()),
     )
     order.items = [
         OrderItem(
@@ -102,6 +107,11 @@ async def create_order(
     response_body = order_out(order).model_dump(mode="json")
     await idempotency_service.complete(db, user_id, idempotency_key, 201, response_body)
     await db.commit()
+
+    from app.workers import state_advancer  # local import breaks the state_advancer <-> order_service cycle
+
+    state_advancer.start(order.id, order.status)
+
     return 201, response_body
 
 
@@ -138,3 +148,74 @@ async def cancel_order(db: AsyncSession, user_id: uuid.UUID, order_id: uuid.UUID
     await idempotency_service.complete(db, user_id, idempotency_key, 200, response_body)
     await db.commit()
     return response_body
+
+
+async def transition_and_notify(
+    order_id: uuid.UUID, target_status: OrderStatus, note: str | None = None
+) -> Order:
+    """System-level transition (courier simulator, state-advancer timers, the
+    dev advance endpoint) -- not scoped to a request's user, so it opens its
+    own session rather than taking one via dependency injection.
+
+    Publishes to Redis and sends the push notification only *after* commit,
+    never inside the transaction: publishing first would let a client fetch
+    via REST and observe stale data before the write is even durable, the
+    classic dual-write ordering bug (DESIGN.md §14.3).
+    """
+    async with AsyncSessionLocal() as db:
+        # FOR UPDATE: the courier simulator's own final PICKED_UP -> DELIVERED
+        # and, say, a manually-clicked dev/advance can genuinely land at the
+        # same moment. Without a row lock here both would read the same
+        # pre-transition status, both pass the FSM check, and both write --
+        # two duplicate terminal OrderEvent rows for the same order. Locking
+        # makes the second caller re-check against the *post*-transition
+        # status once it's unblocked, so it correctly sees "already there"
+        # instead of duplicating the transition.
+        order = await db.scalar(_order_query().where(Order.id == order_id).with_for_update())
+        if order is None:
+            raise OrderNotFound(f"order {order_id} not found")
+        if not can_transition(order.status, target_status):
+            raise InvalidTransition(f"cannot transition {order.status} -> {target_status}")
+
+        order.status = target_status
+        order.events.append(
+            OrderEvent(status=target_status, occurred_at=datetime.now(timezone.utc), note=note)
+        )
+        await db.commit()
+        await db.refresh(order, attribute_names=["version", "updated_at", "events"])
+
+        order_id_str = str(order.id)
+        user_id = order.user_id
+        status_value = order.status.value
+        version = order.version
+        route_polyline = order.route_polyline
+
+    await pubsub.publish(
+        order_id_str,
+        {"v": 1, "type": "order_status", "order_id": order_id_str, "version": version, "data": {"status": status_value}},
+    )
+    async with AsyncSessionLocal() as db:
+        tokens = await device_service.list_tokens(db, user_id)
+    await push_service.send_order_status_push(tokens, order_id_str, status_value)
+
+    if target_status == OrderStatus.PICKED_UP and route_polyline:
+        from app.realtime import courier_simulator
+        from app.realtime.fixture_routes import decode_polyline
+
+        asyncio.create_task(courier_simulator.simulate(order_id, decode_polyline(route_polyline)))
+
+    return order
+
+
+async def advance_to_next(order_id: uuid.UUID) -> Order | None:
+    """Convenience for the dev endpoint / state-advancer: transition to
+    whatever the single "happy path" successor of the order's *current*
+    status is, looked up fresh (not trusted from a stale caller-held object)."""
+    async with AsyncSessionLocal() as db:
+        current = await db.scalar(select(Order.status).where(Order.id == order_id))
+    if current is None:
+        raise OrderNotFound(f"order {order_id} not found")
+    target = auto_next_status(current)
+    if target is None:
+        raise InvalidTransition(f"order in status {current} has no automatic next status")
+    return await transition_and_notify(order_id, target)
