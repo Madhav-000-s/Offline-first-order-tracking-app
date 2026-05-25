@@ -30,6 +30,25 @@ cd android
 ./gradlew assembleDebug
 ```
 
+### Maps and push notifications (developer-supplied)
+
+Two features need credentials that aren't checked into the repo:
+
+- **Maps SDK for Android** (used by `:feature:tracking`'s live courier map):
+  create a key in [Google Cloud Console](https://console.cloud.google.com/)
+  (Maps SDK for Android, billing enabled), then add it to
+  `android/local.properties` (already gitignored):
+  ```
+  MAPS_API_KEY=your-key-here
+  ```
+- **FCM push notifications**: create a Firebase project, register the app
+  (`com.ordertracking.app`), download `google-services.json`, and place it at
+  `android/app/google-services.json` (gitignored).
+
+The project builds and every test suite passes without either of these —
+they're only needed for real map tiles to render and for a push to actually
+be deliverable at runtime.
+
 ## Build plan
 
 This project is being built in 10 phases, each ending in a demonstrable gate.

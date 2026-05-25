@@ -23,16 +23,16 @@ import okhttp3.WebSocketListener
 class OrderWebSocketClient(
     private val okHttpClient: OkHttpClient,
     private val wsUrl: String,
-) {
+) : WebSocketDataSource {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _events = MutableSharedFlow<WsEvent>(extraBufferCapacity = 64)
-    val events: SharedFlow<WsEvent> = _events.asSharedFlow()
+    override val events: SharedFlow<WsEvent> = _events.asSharedFlow()
 
     private var webSocket: WebSocket? = null
     private val lastSeqByOrder = mutableMapOf<String, Long>()
 
-    fun connect(accessToken: String) {
+    override fun connect(accessToken: String) {
         val request = Request.Builder().url(wsUrl).build()
         webSocket = okHttpClient.newWebSocket(request, listener)
         // Token in the first frame, never the query string or a header that
@@ -40,15 +40,15 @@ class OrderWebSocketClient(
         webSocket?.send("""{"token":"$accessToken"}""")
     }
 
-    fun subscribe(orderId: String) {
+    override fun subscribe(orderId: String) {
         webSocket?.send("""{"type":"subscribe","order_id":"$orderId"}""")
     }
 
-    fun ping() {
+    override fun ping() {
         webSocket?.send("""{"type":"ping"}""")
     }
 
-    fun disconnect() {
+    override fun disconnect() {
         webSocket?.close(1000, "client disconnect")
         webSocket = null
     }
