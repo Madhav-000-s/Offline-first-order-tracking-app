@@ -1,5 +1,6 @@
 package com.ordertracking.core.database.dao
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -14,6 +15,10 @@ interface RestaurantDao {
 
     @Query("SELECT * FROM restaurants ORDER BY name")
     fun observeAll(): Flow<List<RestaurantEntity>>
+
+    /** The UI pages off SQLite; `RemoteMediator` only ever writes into it (DESIGN.md §11). */
+    @Query("SELECT * FROM restaurants ORDER BY name")
+    fun pagingSource(): PagingSource<Int, RestaurantEntity>
 
     @Query("SELECT * FROM restaurants WHERE id = :id")
     fun observeOne(id: String): Flow<RestaurantEntity?>

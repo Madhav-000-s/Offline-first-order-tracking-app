@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns all real theming (:core:designsystem); this is just the
+         window-level base theme Android needs before the first Composable runs. -->
+    <style name="Theme.OrderTracking" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
