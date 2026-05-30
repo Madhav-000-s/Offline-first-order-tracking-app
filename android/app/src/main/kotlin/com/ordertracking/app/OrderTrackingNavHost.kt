@@ -1,10 +1,18 @@
 package com.ordertracking.app
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -37,6 +45,7 @@ private object Routes {
     const val MENU = "menu/{restaurantId}"
     const val ORDER_DETAIL = "orderDetail/{localId}"
     const val TRACKING = "tracking/{localId}"
+    const val DEBUG_LOG = "debugLog"
 
     fun menu(restaurantId: String) = "menu/$restaurantId"
     fun orderDetail(localId: String) = "orderDetail/$localId"
@@ -110,7 +119,25 @@ fun OrderTrackingNavHost(navController: NavHostController = rememberNavControlle
                 }
             }
             val state by viewModel.uiState.collectAsState()
-            OrdersListScreen(state = state, onIntent = viewModel::onIntent)
+            Box(modifier = Modifier.fillMaxSize()) {
+                OrdersListScreen(state = state, onIntent = viewModel::onIntent)
+                // The single best interview demo in the project (DESIGN.md §4):
+                // fifteen seconds in here makes the merge engine's decisions
+                // visible instead of just trusted.
+                ExtendedFloatingActionButton(
+                    onClick = { navController.navigate(Routes.DEBUG_LOG) },
+                    modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
+                ) {
+                    Text("Sync log")
+                }
+            }
+        }
+
+        composable(Routes.DEBUG_LOG) {
+            val viewModel: DebugLogViewModel = viewModel(
+                factory = viewModelFactory { initializer { DebugLogViewModel(container.database.syncLogDao()) } },
+            )
+            DebugLogScreen(viewModel = viewModel)
         }
 
         composable(Routes.ORDER_DETAIL) { backStackEntry ->

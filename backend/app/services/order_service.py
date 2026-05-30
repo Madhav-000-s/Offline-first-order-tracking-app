@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.enums import OrderStatus, auto_next_status, can_transition, is_terminal
 from app.core.errors import AppError, InFlightConflict, IdempotencyConflict
 from app.db.models.menu_item import MenuItem
@@ -19,6 +20,8 @@ from app.realtime.fixture_routes import encode_polyline, pick_fixture_route
 from app.schemas.order import PlaceOrderRequest
 from app.services import device_service, idempotency_service, push_service
 from app.services.mappers import order_out
+
+settings = get_settings()
 
 
 class OrderNotFound(AppError):
@@ -108,9 +111,10 @@ async def create_order(
     await idempotency_service.complete(db, user_id, idempotency_key, 201, response_body)
     await db.commit()
 
-    from app.workers import state_advancer  # local import breaks the state_advancer <-> order_service cycle
+    if settings.auto_advance_enabled:
+        from app.workers import state_advancer  # local import breaks the state_advancer <-> order_service cycle
 
-    state_advancer.start(order.id, order.status)
+        state_advancer.start(order.id, order.status)
 
     return 201, response_body
 
