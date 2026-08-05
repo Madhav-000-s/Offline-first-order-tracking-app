@@ -32,6 +32,24 @@ Full architecture and the reasoning behind every decision: **[DESIGN.md](./DESIG
 
 ---
 
+## Screenshots
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/feed.png" width="200" alt="Feed screen"/><br/><sub><b>Feed</b></sub></td>
+<td align="center"><img src="docs/images/orders_list.png" width="200" alt="Orders list with a pending sync badge"/><br/><sub><b>Orders</b> — "Waiting to send"</sub></td>
+<td align="center"><img src="docs/images/order_detail.png" width="200" alt="Order detail timeline"/><br/><sub><b>Order detail</b> — timeline</sub></td>
+<td align="center"><img src="docs/images/menu.png" width="200" alt="Menu and cart"/><br/><sub><b>Menu / cart</b></sub></td>
+</tr>
+</table>
+
+Rendered straight from the production Compose code via
+[Paparazzi](https://github.com/cashapp/paparazzi) — JVM-only, no emulator, no
+mockups. The Maps-based tracking screen isn't shown here since a native map view
+doesn't render through it; see the demo script below for what it looks like live.
+
+---
+
 ## The interesting part: three channels, one truth
 
 Order status arrives over **REST**, **WebSocket**, and **FCM** — three transports with
@@ -136,7 +154,11 @@ so no screen can accidentally bypass Room and render straight off a network resp
 docker compose up --build
 ```
 
-API docs at `http://localhost:8000/docs`. Then:
+API docs at `http://localhost:8000/docs`:
+
+<img src="docs/images/swagger_docs.png" width="700" alt="Live FastAPI Swagger docs for the order-tracking API"/>
+
+Then:
 
 ```bash
 cd android && ./gradlew assembleDebug
