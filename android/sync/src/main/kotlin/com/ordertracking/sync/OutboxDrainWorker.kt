@@ -23,6 +23,29 @@ import kotlinx.serialization.json.Json
 private const val MAX_ATTEMPTS = 10
 
 /**
+ * The key identifies *this outbox entry*, not the order it refers to.
+ *
+ * Deriving it from the order's localId alone meant a CREATE and a later
+ * CANCEL for the same order sent the identical `Idempotency-Key` with two
+ * different request bodies -- which the server correctly reads as a reused
+ * key (422), which [classifyFailure] correctly reads as permanent. Net
+ * effect: every cancel of an order that had already synced failed for good.
+ *
+ * Deterministic, not random: the key must stay byte-identical across every
+ * retry of the same entry or it stops being an idempotency key at all, so
+ * it's derived only from fields that are frozen once the row is written.
+ */
+private val OutboxEntity.idempotencyKey: String
+    get() = if (entityType == "order" && operation == "CREATE") {
+        // The CREATE key is load-bearing past idempotency: the server
+        // persists it as `client_local_id`, which is how OrderWriter matches
+        // the response back to a local row that has no serverId yet.
+        entityLocalId
+    } else {
+        "$entityLocalId:${operation.lowercase()}"
+    }
+
+/**
  * Drains the outbox *serially, in insertion order* -- order-cancel must not
  * overtake order-create (DESIGN.md §7 step 6). Retryable failures stop the
  * whole batch and ask WorkManager to retry with backoff, rather than racing
@@ -75,7 +98,7 @@ class OutboxDrainWorker(
 
     private suspend fun processCreateOrder(entry: OutboxEntity): OutboxOutcome = try {
         val request = json.decodeFromString<PlaceOrderRequestDto>(entry.payloadJson)
-        val response = apiService.placeOrder(idempotencyKey = entry.entityLocalId, body = request)
+        val response = apiService.placeOrder(idempotencyKey = entry.idempotencyKey, body = request)
         orderWriter.apply(response.toRemoteSnapshot(), channel = "REST")
         OutboxOutcome.Success
     } catch (t: Throwable) {
@@ -93,7 +116,7 @@ class OutboxDrainWorker(
         } else {
             val response = apiService.cancelOrder(
                 orderId = serverId,
-                idempotencyKey = entry.entityLocalId,
+                idempotencyKey = entry.idempotencyKey,
                 body = json.decodeFromString<CancelOrderRequestDto>(entry.payloadJson),
             )
             orderWriter.apply(response.toRemoteSnapshot(), channel = "REST")

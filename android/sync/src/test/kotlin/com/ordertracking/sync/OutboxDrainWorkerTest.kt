@@ -19,6 +19,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -42,6 +43,7 @@ class OutboxDrainWorkerTest {
     private lateinit var apiService: ApiService
     private lateinit var orderWriter: OrderWriter
     private lateinit var placeOrderUseCase: PlaceOrderUseCase
+    private lateinit var cancelOrderUseCase: CancelOrderUseCase
     private lateinit var factory: OutboxDrainWorkerFactory
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
@@ -63,6 +65,7 @@ class OutboxDrainWorkerTest {
 
         orderWriter = OrderWriter(db.orderDao(), db.syncLogDao(), SystemAppClock())
         placeOrderUseCase = PlaceOrderUseCase(db, SystemAppClock(), json)
+        cancelOrderUseCase = CancelOrderUseCase(db, SystemAppClock(), json)
         factory = OutboxDrainWorkerFactory(db, apiService, orderWriter, json)
     }
 
@@ -159,6 +162,46 @@ class OutboxDrainWorkerTest {
         val byLocalId = db.orderDao().findByLocalId(localId)
         assertEquals("server-xyz", byLocalId!!.serverId)
         assertEquals(1L, byLocalId.serverVersion)
+    }
+
+    @Test
+    fun `a cancel does not reuse the create's Idempotency-Key`() = runTest {
+        val localId = (placeOrderUseCase.invoke(
+            PlaceOrderInput(
+                restaurantId = "rest-1",
+                currency = "USD",
+                items = listOf(PlaceOrderItemInput("menu-1", "Burger", 899, 1)),
+            ),
+        ) as com.ordertracking.core.common.Outcome.Success).value
+
+        cancelOrderUseCase.invoke(localId)
+
+        server.enqueue(MockResponse().setResponseCode(201).setBody(orderResponseJson(localId, "server-abc", version = 1)))
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody(orderResponseJson(localId, "server-abc", version = 2, status = "CANCELLED")),
+        )
+
+        val worker = TestListenableWorkerBuilder<OutboxDrainWorker>(ApplicationProvider.getApplicationContext())
+            .setWorkerFactory(factory)
+            .build()
+        assertTrue(worker.startWork().get() is androidx.work.ListenableWorker.Result.Success)
+
+        val createKey = server.takeRequest().getHeader("Idempotency-Key")
+        val cancelKey = server.takeRequest().getHeader("Idempotency-Key")
+
+        // The create's key is load-bearing: the server stores it as
+        // client_local_id, which is how the response finds its local row.
+        assertEquals(localId, createKey)
+        // The cancel's must differ, or the server sees one key with two
+        // different bodies and correctly rejects it as a 422 conflict --
+        // which the worker classifies as permanent, failing the order for good.
+        assertNotEquals("cancel must carry its own key", createKey, cancelKey)
+
+        val order = db.orderDao().findByLocalId(localId)!!
+        assertEquals(SyncState.SYNCED, order.syncState)
+        assertNull(order.lastError)
+        assertEquals(0, db.outboxDao().dueEntries(java.time.Instant.now()).size)
     }
 
     @Test
