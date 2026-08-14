@@ -25,11 +25,26 @@ services:
       timeout: 5s
       retries: 10
 
+  # Runs to completion and exits; `api` waits on it via
+  # service_completed_successfully, so a fresh `docker compose up` always
+  # migrates before the first request can arrive.
+  migrate:
+    build:
+      context: ./backend
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://order_tracking:order_tracking@postgres:5432/order_tracking
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build:
       context: ./backend
-    env_file:
-      - ./backend/.env
+    # Every setting in app/core/config.py has a working development default,
+    # so no .env file is required to bring the stack up -- only the two
+    # service addresses actually differ inside the compose network.
     environment:
       DATABASE_URL: postgresql+asyncpg://order_tracking:order_tracking@postgres:5432/order_tracking
       REDIS_URL: redis://redis:6379/0
@@ -40,6 +55,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - ./backend:/app
 
