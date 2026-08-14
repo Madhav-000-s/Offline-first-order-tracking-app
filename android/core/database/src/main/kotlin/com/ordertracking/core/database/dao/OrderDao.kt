@@ -42,6 +42,14 @@ interface OrderDao {
     suspend fun updateOrder(order: OrderEntity)
 
     /**
+     * Tombstone application. `order_items` and `order_events` both declare
+     * ON DELETE CASCADE against `orders.localId`, so this is the whole
+     * delete -- no manual child cleanup to forget.
+     */
+    @Query("DELETE FROM orders WHERE serverId = :serverId")
+    suspend fun deleteByServerId(serverId: String)
+
+    /**
      * Insert order + items + initial event atomically -- transactional
      * atomicity means we can never have an order without its outbox entry,
      * or vice versa, once the caller wraps this together with an outbox

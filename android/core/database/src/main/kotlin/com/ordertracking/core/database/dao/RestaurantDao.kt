@@ -29,6 +29,10 @@ interface RestaurantDao {
     @Query("DELETE FROM restaurants")
     suspend fun clearAll()
 
+    /** Tombstone application: the server said this row is gone. */
+    @Query("DELETE FROM restaurants WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
     @Query("DELETE FROM remote_keys")
     suspend fun clearRemoteKeys()
 

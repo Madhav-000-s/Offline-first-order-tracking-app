@@ -51,7 +51,13 @@ class AppContainer(context: Context) {
     val restaurantRepository: RestaurantRepository =
         RestaurantRepository(apiService, database.restaurantDao(), database.menuItemDao())
     val syncRepository: SyncRepository = SyncRepository(
-        apiService, orderWriter, database.restaurantDao(), database.menuItemDao(), database.syncCursorDao(), clock,
+        apiService,
+        orderWriter,
+        database.orderDao(),
+        database.restaurantDao(),
+        database.menuItemDao(),
+        database.syncCursorDao(),
+        clock,
     )
 
     val placeOrderUseCase: PlaceOrderUseCase = PlaceOrderUseCase(database, clock, json)

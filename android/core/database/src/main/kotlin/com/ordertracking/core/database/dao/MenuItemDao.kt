@@ -18,4 +18,8 @@ interface MenuItemDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<MenuItemEntity>)
+
+    /** Tombstone application: the server said this row is gone. */
+    @Query("DELETE FROM menu_items WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
 }
