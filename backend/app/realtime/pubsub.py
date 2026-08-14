@@ -20,8 +20,31 @@ def get_redis() -> redis.Redis:
     return _redis
 
 
+# Kept well past any realistic socket lifetime, but not forever: an order
+# that stopped emitting a day ago is never coming back, and a client that
+# reconnects after the key expires just sees a lower `seq` than it had --
+# which never trips the gap check, because a gap is `seq > last + 1`.
+_SEQ_TTL_SECONDS = 24 * 60 * 60
+
+
 async def publish(order_id: str, message: dict) -> None:
-    await get_redis().publish(f"order:{order_id}", json.dumps(message))
+    """Stamps every outbound frame with a per-order monotonic `seq`.
+
+    The counter lives in Redis rather than in the publishing process because
+    two workers can both publish for the same order -- a process-local
+    counter would emit duplicate sequence numbers and the client's gap
+    detection would be reading noise. `INCR` is atomic and creates the key
+    on first use, so this is one round trip with no initialisation step.
+
+    The client compares consecutive `seq` values per order and enqueues a
+    delta sync when it sees a jump, which is what makes a dropped frame
+    self-healing instead of silently lost (DESIGN.md §9).
+    """
+    redis_client = get_redis()
+    key = f"seq:order:{order_id}"
+    seq = await redis_client.incr(key)
+    await redis_client.expire(key, _SEQ_TTL_SECONDS)
+    await redis_client.publish(f"order:{order_id}", json.dumps({**message, "seq": seq}))
 
 
 async def subscriber_loop() -> None:
