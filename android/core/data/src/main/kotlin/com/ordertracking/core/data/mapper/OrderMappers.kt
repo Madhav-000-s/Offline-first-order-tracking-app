@@ -73,10 +73,10 @@ fun OrderEvent.toEntity(): OrderEventEntity = OrderEventEntity(
 /**
  * The REST/full-sync path: every field the wire format carries is present,
  * so [RemoteOrderSnapshot.clientLocalId] is always the real one. WS partial
- * updates (order_id + status only, no client_local_id) can't use this
- * directly -- that path resolves the local row by serverId first and
- * builds a snapshot from the existing local row's other fields plus the
- * WS delta (:feature:tracking, once that repository exists).
+ * updates (order_id + version + status, no client_local_id) can't use this
+ * directly -- that path is `OrderWriter.applyStatus`, which resolves the
+ * local row by serverId and overlays the WS delta onto the row's own
+ * fields before running the identical merge.
  */
 fun OrderDto.toRemoteSnapshot(): RemoteOrderSnapshot = RemoteOrderSnapshot(
     serverId = id,

@@ -177,6 +177,7 @@ fun OrderTrackingNavHost(navController: NavHostController = rememberNavControlle
                         val trackingRepository = TrackingRepository(
                             wsClient = wsClient,
                             courierLastKnownDao = container.database.courierLastKnownDao(),
+                            orderWriter = container.orderWriter,
                             onGapDetected = { container.syncManager.enqueueDeltaSync() },
                         )
                         TrackingViewModel(

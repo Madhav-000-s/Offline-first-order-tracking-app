@@ -4,7 +4,9 @@ import com.ordertracking.core.common.AppClock
 import com.ordertracking.core.data.mapper.toEntity
 import com.ordertracking.core.database.dao.OrderDao
 import com.ordertracking.core.database.dao.SyncLogDao
+import com.ordertracking.core.database.entity.OrderEntity
 import com.ordertracking.core.database.entity.SyncLogEntity
+import com.ordertracking.core.model.OrderStatus
 
 /**
  * The only class in the app permitted to INSERT/UPDATE the `orders` table
@@ -66,6 +68,53 @@ class OrderWriter(
         }
         return decision
     }
+
+    /**
+     * The WebSocket/FCM path (DESIGN.md §9). A live frame carries only
+     * `order_id`, `version` and `status` -- no restaurant, no items, no
+     * totals -- so it cannot build a [RemoteOrderSnapshot] on its own and
+     * cannot create a row. It resolves the local row by serverId, overlays
+     * the two fields it actually knows, and then goes through [apply] like
+     * everything else, so the version and FSM guards are literally the same
+     * code rather than a second implementation that can drift.
+     *
+     * Returns null when this device has no such order -- a frame for an
+     * order we've never synced isn't an error, it just means the delta sync
+     * hasn't reached it yet, and the caller's gap/sync trigger will.
+     */
+    suspend fun applyStatus(serverId: String, version: Long, status: OrderStatus, channel: String): MergeDecision? {
+        val local = orderDao.findByServerId(serverId)
+        if (local == null) {
+            log(serverId, channel, "SKIP_UNKNOWN", "status frame for an order not in the local cache")
+            return null
+        }
+        return apply(local.toStatusOverlay(version, status), channel)
+    }
+
+    /**
+     * Every field except the two the frame carries is echoed straight back
+     * from the local row, so the merge is a no-op on them. Notably
+     * `serverUpdatedAt` is *not* set to the device clock -- a live frame
+     * doesn't tell us the server's updated_at, and inventing one would put
+     * a client timestamp into a server-owned column.
+     */
+    private fun OrderEntity.toStatusOverlay(version: Long, status: OrderStatus) = RemoteOrderSnapshot(
+        serverId = requireNotNull(serverId),
+        clientLocalId = localId,
+        restaurantId = restaurantId,
+        status = status,
+        version = version,
+        updatedAt = serverUpdatedAt ?: placedAtLocal,
+        eta = etaAtServer,
+        totalMinor = totalMinor,
+        currency = currency,
+        deliveryNote = deliveryNote,
+        tipMinor = tipMinor,
+        routePolyline = routePolyline,
+        placedAt = placedAtLocal,
+        items = emptyList(),
+        events = emptyList(),
+    )
 
     private suspend fun log(orderLocalId: String, channel: String, decision: String, detail: String) {
         syncLogDao.record(
