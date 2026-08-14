@@ -51,6 +51,21 @@ class SyncManager(private val workManager: WorkManager) {
         workManager.enqueueUniqueWork(DeltaSyncWorker.WORK_NAME, ExistingWorkPolicy.REPLACE, request)
     }
 
+    /**
+     * The foreground trigger. Both halves matter and they are not the same
+     * job: the delta sync pulls down whatever changed while the app was
+     * away, the outbox drain pushes up whatever was written offline. A
+     * process that was killed mid-drain has pending rows and no scheduled
+     * work to move them, so coming back to the foreground has to re-arm it.
+     *
+     * Both are unique work, so returning to the foreground repeatedly
+     * collapses into one run rather than queueing a burst.
+     */
+    fun onAppForeground() {
+        enqueueDeltaSync()
+        enqueueOutboxDrain()
+    }
+
     fun schedulePeriodicSync() {
         val request = PeriodicWorkRequestBuilder<DeltaSyncWorker>(15, TimeUnit.MINUTES)
             .setConstraints(

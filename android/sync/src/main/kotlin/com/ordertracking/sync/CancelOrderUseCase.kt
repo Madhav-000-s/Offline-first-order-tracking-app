@@ -21,6 +21,7 @@ class CancelOrderUseCase(
     private val db: AppDatabase,
     private val clock: AppClock,
     private val json: Json,
+    private val onOutboxEnqueued: () -> Unit = {},
 ) {
     suspend fun invoke(orderLocalId: String, reason: String? = null): Outcome<Unit> {
         if (db.orderDao().findByLocalId(orderLocalId) == null) {
@@ -36,6 +37,7 @@ class CancelOrderUseCase(
             nextAttemptAt = clock.now(),
         )
         db.outboxDao().insert(outbox)
+        onOutboxEnqueued()
         return Unit.asSuccess()
     }
 }

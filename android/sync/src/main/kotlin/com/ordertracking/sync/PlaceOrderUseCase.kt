@@ -41,6 +41,14 @@ class PlaceOrderUseCase(
     private val db: AppDatabase,
     private val clock: AppClock,
     private val json: Json,
+    /**
+     * Fired once the write has committed, to ask WorkManager to drain the
+     * outbox. A lambda rather than a `SyncManager` dependency so this stays
+     * unit-testable without a WorkManager in the picture -- and so the
+     * write path can't accidentally start depending on the scheduler for
+     * anything other than "there is new work".
+     */
+    private val onOutboxEnqueued: () -> Unit = {},
 ) {
     suspend fun invoke(input: PlaceOrderInput): Outcome<String> {
         val localId = UUID.randomUUID().toString()
@@ -102,6 +110,13 @@ class PlaceOrderUseCase(
             db.orderDao().insertNewOrder(order, items, event)
             db.outboxDao().insert(outbox)
         }
+
+        // After the commit, never inside it: a worker that started early
+        // could read the outbox before this transaction is visible, find
+        // nothing, and the order would then sit until the next periodic
+        // tick. The constraint on the work request is NetworkType.CONNECTED,
+        // so enqueuing while offline is free -- it just waits.
+        onOutboxEnqueued()
 
         return localId.asSuccess()
     }

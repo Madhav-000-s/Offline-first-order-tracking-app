@@ -60,11 +60,16 @@ class AppContainer(context: Context) {
         clock,
     )
 
-    val placeOrderUseCase: PlaceOrderUseCase = PlaceOrderUseCase(database, clock, json)
-    val cancelOrderUseCase: CancelOrderUseCase = CancelOrderUseCase(database, clock, json)
-
     val workManager: WorkManager by lazy { WorkManager.getInstance(appContext) }
     val syncManager: SyncManager by lazy { SyncManager(workManager) }
+
+    // The drain trigger is a lambda, and `syncManager` is lazy, so declaring
+    // the use cases before it is fine -- nothing touches WorkManager until a
+    // write actually happens.
+    val placeOrderUseCase: PlaceOrderUseCase =
+        PlaceOrderUseCase(database, clock, json) { syncManager.enqueueOutboxDrain() }
+    val cancelOrderUseCase: CancelOrderUseCase =
+        CancelOrderUseCase(database, clock, json) { syncManager.enqueueOutboxDrain() }
 
     val outboxDrainWorkerFactory = OutboxDrainWorkerFactory(database, apiService, orderWriter, json)
     val deltaSyncWorkerFactory = DeltaSyncWorkerFactory(syncRepository)
