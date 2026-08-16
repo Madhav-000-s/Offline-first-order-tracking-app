@@ -1,0 +1,19 @@
+# Opt-in overlay for a live demo. Purely additive: the base
+# docker-compose.yml is untouched, and none of this applies unless you name
+# this file explicitly:
+#
+#   docker compose -f docker-compose.yml -f demo/docker-compose.demo.yml up -d
+#
+# Drop the second -f to go back to normal behaviour.
+services:
+  api:
+    environment:
+      # The backend normally walks an order up the ladder on its own timers
+      # (8s/8s/12s/8s, see workers/state_advancer.py). That's the right
+      # default -- it means the app does something interesting without any
+      # intervention -- but it races `drive_demo.py step`: the timer fires
+      # between your manual advances and the ladder appears to skip rungs.
+      #
+      # Off here, the order sits still until you advance it, so every
+      # transition on screen is one you triggered and can talk through.
+      AUTO_ADVANCE_ENABLED: "false"

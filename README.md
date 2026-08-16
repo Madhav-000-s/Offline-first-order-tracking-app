@@ -237,6 +237,82 @@ whole thing deterministic and CI-friendly with no device farm in the loop.
 
 ---
 
+## Driving a demo
+
+`demo/` is a self-contained harness for showing the app live. It is additive --
+nothing in it changes how the app or backend behave unless you invoke it
+explicitly. It needs no Google Maps API key, because it demonstrates the status
+ladder through the orders screens and the sync log rather than the map.
+
+Stdlib Python only, no venv:
+
+```bash
+python demo/drive_demo.py status
+```
+
+### Why it exists
+
+Two things make the flow awkward to show unaided:
+
+- The backend walks an order up the ladder on its own timers
+  (8s/8s/12s/8s). That is either too fast to narrate or too slow to watch.
+- Live status frames arrive over the WebSocket, which is scoped to the
+  tracking screen's ViewModel -- the one screen that needs a Maps key. On the
+  orders list and order detail, status converges via **delta sync**, whose only
+  practical trigger during a demo is app foreground. The harness performs that
+  foreground cycle over `adb` for you.
+
+### Optional: take the timers out of the loop
+
+For a demo where every transition is one you triggered, start the stack with the
+overlay. The base compose file is untouched; drop the second `-f` to go back.
+
+```bash
+docker compose -f docker-compose.yml -f demo/docker-compose.demo.yml up -d
+```
+
+### The commands
+
+| Command | Does |
+|---|---|
+| `python demo/drive_demo.py status` | Recent orders, their versions, and the ladder |
+| `python demo/drive_demo.py step` | Advance one rung, then foreground the app so it syncs |
+| `python demo/drive_demo.py run` | Advance all the way to `DELIVERED`, then sync once |
+| `python demo/drive_demo.py refresh` | Just foreground the app to force a delta sync |
+
+`--order <uuid>` targets a specific order instead of the newest. `--no-phone`
+skips every `adb` step and drives the backend alone.
+
+`step` is the one to use live -- one rung, one sync, one thing to say about each.
+`run` is for a fast end-to-end sanity check before anyone is watching.
+
+```
+$ python demo/drive_demo.py step
+PLACED -> ACCEPTED
+  PLACED->[ACCEPTED]->preparing->ready->picked_up->delivered
+  phone foregrounded -> delta sync enqueued
+```
+
+### Watching it land on the device
+
+The status change is server-side until the phone syncs. `step` foregrounds the
+app for you, which is what fires `SyncManager.onAppForeground()`; give it a few
+seconds, then look at the order detail screen -- the status line and the timeline
+both update straight off the Room `Flow`, with nothing telling them to refresh.
+
+The **Sync log** button on the orders screen is the payoff: every merge decision
+of the session, `ACCEPT` / `REJECT_STALE` / `REJECT_REGRESSION`, with the version
+that produced it.
+
+For the strongest version, keep the backend log visible in a second window --
+zero requests while the device is offline, then the writes landing on reconnect:
+
+```bash
+docker compose logs -f api
+```
+
+---
+
 ## 3-minute demo script
 
 0. **Sign in once, online.** A fresh install opens on the login screen and "Create

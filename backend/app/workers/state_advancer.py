@@ -4,6 +4,7 @@ import uuid
 
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.enums import OrderStatus
 from app.db.models.order import Order
 from app.db.session import AsyncSessionLocal
@@ -48,6 +49,15 @@ async def _advance_loop(order_id: uuid.UUID, current_status: OrderStatus) -> Non
 
 
 def start(order_id: uuid.UUID, current_status: OrderStatus) -> None:
+    # The `auto_advance_enabled` check belongs here, not only at the call
+    # site in order_service.create_order. Two other callers re-arm timers --
+    # the dev advance endpoint (after every manual transition) and the
+    # startup reconciler -- and both used to do it unconditionally, so
+    # setting the flag to false stopped the *first* timer and nothing else.
+    # Gating the one function every caller funnels through makes the setting
+    # mean what it says.
+    if not get_settings().auto_advance_enabled:
+        return
     if current_status not in STAGE_DURATIONS_SECONDS or order_id in _running_tasks:
         return
     _running_tasks[order_id] = asyncio.create_task(_advance_loop(order_id, current_status))
