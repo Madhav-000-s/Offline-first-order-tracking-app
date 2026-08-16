@@ -4,6 +4,7 @@ import com.ordertracking.core.common.AppError
 import com.ordertracking.core.common.Outcome
 import com.ordertracking.core.common.asFailure
 import com.ordertracking.core.common.asSuccess
+import com.ordertracking.core.database.AppDatabase
 import com.ordertracking.core.datastore.SessionManager
 import com.ordertracking.core.network.ApiService
 import com.ordertracking.core.network.auth.TokenPair
@@ -12,6 +13,8 @@ import com.ordertracking.core.network.dto.LoginRequestDto
 import com.ordertracking.core.network.dto.RegisterRequestDto
 import com.ordertracking.core.network.dto.TokenPairResponseDto
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 
 /**
@@ -30,6 +33,7 @@ class AuthRepository(
     private val api: ApiService,
     private val tokenStore: TokenStore,
     private val sessionManager: SessionManager,
+    private val db: AppDatabase,
 ) {
 
     suspend fun login(email: String, password: String): Outcome<Unit> =
@@ -46,10 +50,25 @@ class AuthRepository(
             )
         }
 
-    /** Drops both halves of the session. Safe to call when already logged out. */
+    /**
+     * Drops the session *and* the local cache. Safe to call when already
+     * logged out.
+     *
+     * Room is a per-account cache here, not a shared one: it holds the
+     * signed-in user's orders and their outbox. Keeping it across a logout
+     * would show the next person to sign in on this device the previous
+     * user's order history, and would let the drain push their queued
+     * writes under a different account's token.
+     *
+     * The cost is real and deliberate -- signing out with a write still
+     * queued discards it. That beats delivering it as somebody else.
+     * Credentials go first so nothing can start a fresh authenticated
+     * request while the wipe is in progress.
+     */
     suspend fun logout() {
         tokenStore.clear()
         sessionManager.clear()
+        withContext(Dispatchers.IO) { db.clearAllTables() }
     }
 
     private suspend fun establishSession(call: suspend () -> TokenPairResponseDto): Outcome<Unit> = try {

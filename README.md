@@ -25,9 +25,9 @@ Full architecture and the reasoning behind every decision: **[DESIGN.md](./DESIG
 
 | | |
 |---|---|
-| **Client** | 14-module Gradle graph · 93 Kotlin files · ~5.9k LOC |
+| **Client** | 14-module Gradle graph · 95 Kotlin files · ~6.3k LOC |
 | **Backend** | FastAPI + SQLAlchemy 2.0 async + Alembic · 14 endpoints · ~2.5k LOC |
-| **Tests** | 53 JVM tests across 12 suites (Android) + 9 integration tests on a real Postgres (backend) |
+| **Tests** | 63 JVM tests across 13 suites (Android) + 9 integration tests on a real Postgres (backend) |
 | **Infra** | One `docker compose up` — Postgres, Redis, API, migrations |
 
 ---
@@ -97,7 +97,10 @@ simply replays the page. That property is what makes the whole sync protocol saf
 **Offline writes that survive process death.** Placing an order writes the order row
 *and* its outbox row in a single Room transaction — so the "Waiting to send" badge is
 never a lie. `OutboxDrainWorker` (WorkManager) drains it when connectivity returns and
-reconciles the local row to a real `serverId`.
+reconciles the local row to a real `serverId`. A write the server rejects outright is
+deferred rather than deleted — silently dropping a user's order because of a 422 is
+unacceptable — and the "Failed" badge re-arms that same entry, so "deferred" and
+"deleted" aren't the same outcome with different bookkeeping.
 
 **Idempotency that actually holds.** Every outbound write carries a client-generated
 `Idempotency-Key`; the backend persists keys and replays the original response. Fire

@@ -66,7 +66,7 @@ class OutboxDrainWorkerTest {
         orderWriter = OrderWriter(db.orderDao(), db.syncLogDao(), SystemAppClock())
         placeOrderUseCase = PlaceOrderUseCase(db, SystemAppClock(), json)
         cancelOrderUseCase = CancelOrderUseCase(db, SystemAppClock(), json)
-        factory = OutboxDrainWorkerFactory(db, apiService, orderWriter, json)
+        factory = OutboxDrainWorkerFactory(db, apiService, orderWriter, json, hasSession = { true })
     }
 
     @After
@@ -230,6 +230,34 @@ class OutboxDrainWorkerTest {
         // The outbox row is kept (for a manual retry action) but deferred far
         // into the future, so it won't be picked up by the next automatic drain.
         assertEquals(0, db.outboxDao().dueEntries(java.time.Instant.now()).size)
+    }
+
+    @Test
+    fun `with no session the drain leaves the queue untouched`() = runTest {
+        val localId = (placeOrderUseCase.invoke(
+            PlaceOrderInput(
+                restaurantId = "rest-1",
+                currency = "USD",
+                items = listOf(PlaceOrderItemInput("menu-1", "Burger", 899, 1)),
+            ),
+        ) as com.ordertracking.core.common.Outcome.Success).value
+
+        // No MockResponse enqueued on purpose: nothing should be sent. Were
+        // it sent, the 401 would classify as permanent and mark this order
+        // FAILED for a reason that has nothing to do with the order.
+        val loggedOut = OutboxDrainWorkerFactory(db, apiService, orderWriter, json, hasSession = { false })
+        val worker = TestListenableWorkerBuilder<OutboxDrainWorker>(ApplicationProvider.getApplicationContext())
+            .setWorkerFactory(loggedOut)
+            .build()
+        val result = worker.startWork().get()
+
+        assertTrue(result is androidx.work.ListenableWorker.Result.Success)
+        assertEquals("no request should have been made", 0, server.requestCount)
+
+        val order = db.orderDao().findByLocalId(localId)!!
+        assertEquals(SyncState.PENDING_CREATE, order.syncState)
+        assertNull(order.lastError)
+        assertEquals("still queued for when a session exists", 1, db.outboxDao().dueEntries(java.time.Instant.now()).size)
     }
 
     @Test

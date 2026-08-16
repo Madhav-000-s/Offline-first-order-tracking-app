@@ -2,6 +2,8 @@ package com.ordertracking.feature.orders
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ordertracking.core.common.Outcome
+import com.ordertracking.core.common.onFailure
 import com.ordertracking.core.data.repository.OrderRepository
 import com.ordertracking.core.model.Order
 import kotlinx.coroutines.channels.Channel
@@ -11,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 data class OrdersListUiState(
     val orders: List<Order> = emptyList(),
@@ -20,6 +23,7 @@ data class OrdersListUiState(
 sealed interface OrdersListIntent {
     data object PullToRefresh : OrdersListIntent
     data class OrderClicked(val localId: String) : OrdersListIntent
+    data class RetryClicked(val localId: String) : OrdersListIntent
 }
 
 sealed interface OrdersListEffect {
@@ -37,6 +41,7 @@ sealed interface OrdersListEffect {
 class OrdersListViewModel(
     private val orderRepository: OrderRepository,
     private val onPullToRefresh: () -> Unit,
+    private val retryFailedWrite: suspend (orderLocalId: String) -> Outcome<Unit>,
 ) : ViewModel() {
 
     private val effectChannel = Channel<OrdersListEffect>(Channel.BUFFERED)
@@ -50,6 +55,22 @@ class OrdersListViewModel(
         when (intent) {
             is OrdersListIntent.PullToRefresh -> onPullToRefresh()
             is OrdersListIntent.OrderClicked -> effectChannel.trySend(OrdersListEffect.NavigateToDetail(intent.localId))
+            is OrdersListIntent.RetryClicked -> retry(intent.localId)
+        }
+    }
+
+    /**
+     * No loading flag and no success message: re-arming the outbox entry
+     * flips the order's syncState, Room emits, and the badge goes from
+     * "Failed" to "Waiting to send" on its own. If the retry then fails
+     * again the drain stamps FAILED again and the badge comes back -- the
+     * whole feedback loop is already the DAO Flow's job.
+     */
+    private fun retry(orderLocalId: String) {
+        viewModelScope.launch {
+            retryFailedWrite(orderLocalId).onFailure { error ->
+                effectChannel.trySend(OrdersListEffect.ShowSnackbar(error.message ?: "Couldn't retry"))
+            }
         }
     }
 }

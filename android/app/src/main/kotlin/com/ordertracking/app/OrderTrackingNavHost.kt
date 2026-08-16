@@ -1,10 +1,13 @@
 package com.ordertracking.app
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -144,12 +147,19 @@ private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boole
                 // Overlaid here rather than built into :feature:feed for the
                 // same reason the sync-log button is overlaid on the orders
                 // list: the feature module has no business knowing the app
-                // has a session, and :app is the only module that does.
-                ExtendedFloatingActionButton(
-                    onClick = { scope.launch { container.authRepository.logout() } },
+                // has a session or what else is in the nav graph, and :app
+                // is the only module that does.
+                Row(
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Log out")
+                    TextButton(onClick = { scope.launch { container.authRepository.logout() } }) {
+                        Text("Log out")
+                    }
+                    ExtendedFloatingActionButton(onClick = { navController.navigate(Routes.ORDERS) }) {
+                        Text("Orders")
+                    }
                 }
             }
         }
@@ -189,6 +199,7 @@ private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boole
                         OrdersListViewModel(
                             orderRepository = container.orderRepository,
                             onPullToRefresh = { container.syncManager.enqueuePullToRefresh() },
+                            retryFailedWrite = { localId -> container.retryFailedWriteUseCase.invoke(localId) },
                         )
                     }
                 },

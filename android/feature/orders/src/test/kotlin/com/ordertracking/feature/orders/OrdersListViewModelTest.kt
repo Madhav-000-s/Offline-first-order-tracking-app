@@ -3,6 +3,9 @@ package com.ordertracking.feature.orders
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
+import com.ordertracking.core.common.AppError
+import com.ordertracking.core.common.asFailure
+import com.ordertracking.core.common.asSuccess
 import com.ordertracking.core.data.repository.OrderRepository
 import com.ordertracking.core.database.AppDatabase
 import com.ordertracking.core.database.entity.OrderEntity
@@ -12,6 +15,7 @@ import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -67,7 +71,7 @@ class OrdersListViewModelTest {
     @Test
     fun `state reflects Room as orders are inserted, with no explicit refresh`() = runTest(dispatcher) {
         var refreshCalled = false
-        val viewModel = OrdersListViewModel(repository, onPullToRefresh = { refreshCalled = true })
+        val viewModel = OrdersListViewModel(repository, onPullToRefresh = { refreshCalled = true }, retryFailedWrite = { Unit.asSuccess() })
 
         viewModel.uiState.test {
             assertEquals(emptyList<Any>(), awaitItem().orders)
@@ -84,8 +88,41 @@ class OrdersListViewModelTest {
     }
 
     @Test
+    fun `tapping the failed badge delegates to the retry use case`() = runTest(dispatcher) {
+        var retried: String? = null
+        val viewModel = OrdersListViewModel(
+            repository,
+            onPullToRefresh = {},
+            retryFailedWrite = { localId -> retried = localId; Unit.asSuccess() },
+        )
+
+        viewModel.onIntent(OrdersListIntent.RetryClicked("local-7"))
+        advanceUntilIdle()
+
+        assertEquals("local-7", retried)
+    }
+
+    @Test
+    fun `a retry that cannot be scheduled tells the user instead of failing silently`() = runTest(dispatcher) {
+        val viewModel = OrdersListViewModel(
+            repository,
+            onPullToRefresh = {},
+            retryFailedWrite = { AppError.Validation("nothing left to retry for this order").asFailure() },
+        )
+
+        viewModel.effects.test {
+            viewModel.onIntent(OrdersListIntent.RetryClicked("local-7"))
+            advanceUntilIdle()
+            assertEquals(
+                OrdersListEffect.ShowSnackbar("nothing left to retry for this order"),
+                awaitItem(),
+            )
+        }
+    }
+
+    @Test
     fun `clicking an order emits a navigate effect with its localId`() = runTest(dispatcher) {
-        val viewModel = OrdersListViewModel(repository, onPullToRefresh = {})
+        val viewModel = OrdersListViewModel(repository, onPullToRefresh = {}, retryFailedWrite = { Unit.asSuccess() })
 
         viewModel.effects.test {
             viewModel.onIntent(OrdersListIntent.OrderClicked("local-42"))

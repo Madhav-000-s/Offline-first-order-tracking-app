@@ -46,7 +46,11 @@ fun OrdersListScreen(
             }
             else -> LazyColumn(contentPadding = PaddingValues(16.dp, padding.calculateTopPadding())) {
                 items(state.orders, key = { it.localId }) { order ->
-                    OrderRow(order = order, onClick = { onIntent(OrdersListIntent.OrderClicked(order.localId)) })
+                    OrderRow(
+                        order = order,
+                        onClick = { onIntent(OrdersListIntent.OrderClicked(order.localId)) },
+                        onRetry = { onIntent(OrdersListIntent.RetryClicked(order.localId)) },
+                    )
                 }
             }
         }
@@ -54,15 +58,25 @@ fun OrdersListScreen(
 }
 
 @Composable
-private fun OrderRow(order: Order, onClick: () -> Unit) {
+private fun OrderRow(order: Order, onClick: () -> Unit, onRetry: () -> Unit) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(text = "Order ${order.localId.take(8)}", style = MaterialTheme.typography.titleMedium)
             Text(text = order.status.name, style = MaterialTheme.typography.bodyMedium)
-            if (order.syncState == SyncState.PENDING_CREATE) {
-                AssistChip(onClick = {}, label = { Text("Waiting to send") })
-            } else if (order.syncState == SyncState.FAILED) {
-                AssistChip(onClick = {}, label = { Text("Failed — tap to retry") })
+            when (order.syncState) {
+                // Inert on purpose: there is nothing for the user to do
+                // about a write that is already queued and waiting.
+                SyncState.PENDING_CREATE -> AssistChip(onClick = {}, label = { Text("Waiting to send") })
+                SyncState.FAILED -> AssistChip(onClick = onRetry, label = { Text("Failed — tap to retry") })
+                else -> Unit
+            }
+            val lastError = order.lastError
+            if (order.syncState == SyncState.FAILED && lastError != null) {
+                Text(
+                    text = lastError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }

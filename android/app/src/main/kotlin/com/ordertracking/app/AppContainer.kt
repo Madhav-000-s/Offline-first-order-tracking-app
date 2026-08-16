@@ -20,7 +20,9 @@ import com.ordertracking.sync.CancelOrderUseCase
 import com.ordertracking.sync.DeltaSyncWorkerFactory
 import com.ordertracking.sync.OutboxDrainWorkerFactory
 import com.ordertracking.sync.PlaceOrderUseCase
+import com.ordertracking.sync.RetryFailedWriteUseCase
 import com.ordertracking.sync.SyncManager
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
 
 /**
@@ -53,7 +55,7 @@ class AppContainer(context: Context) {
     val apiService: ApiService = networkModule.apiService
     val json: Json = networkModule.json
 
-    val authRepository: AuthRepository = AuthRepository(apiService, tokenStore, sessionManager)
+    val authRepository: AuthRepository = AuthRepository(apiService, tokenStore, sessionManager, database)
 
     val clock: AppClock = SystemAppClock()
 
@@ -81,9 +83,20 @@ class AppContainer(context: Context) {
         PlaceOrderUseCase(database, clock, json) { syncManager.enqueueOutboxDrain() }
     val cancelOrderUseCase: CancelOrderUseCase =
         CancelOrderUseCase(database, clock, json) { syncManager.enqueueOutboxDrain() }
+    val retryFailedWriteUseCase: RetryFailedWriteUseCase =
+        RetryFailedWriteUseCase(database, clock) { syncManager.enqueueOutboxDrain() }
 
-    val outboxDrainWorkerFactory = OutboxDrainWorkerFactory(database, apiService, orderWriter, json)
-    val deltaSyncWorkerFactory = DeltaSyncWorkerFactory(syncRepository)
+    /**
+     * Both workers issue authenticated requests, so both need to know
+     * whether there is a session at all. Reading the DataStore flow's
+     * current value keeps this off the main thread and away from
+     * TokenStore's EncryptedSharedPreferences init.
+     */
+    private val hasSession: suspend () -> Boolean = { sessionManager.session.first().isLoggedIn }
+
+    val outboxDrainWorkerFactory =
+        OutboxDrainWorkerFactory(database, apiService, orderWriter, json, hasSession)
+    val deltaSyncWorkerFactory = DeltaSyncWorkerFactory(syncRepository, hasSession)
 
     fun newWebSocketClient(): OrderWebSocketClient = OrderWebSocketClient(networkModule.okHttpClient, WS_URL)
 

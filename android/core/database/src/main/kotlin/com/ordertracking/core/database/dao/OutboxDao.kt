@@ -22,6 +22,19 @@ interface OutboxDao {
     @Query("SELECT * FROM outbox ORDER BY id ASC")
     fun observeAll(): Flow<List<OutboxEntity>>
 
+    /**
+     * Re-arms every deferred entry for one order, and returns how many it
+     * touched. Both columns have to be reset, not just one: `nextAttemptAt`
+     * is what the drain pushes a year out when it gives up (so the entry
+     * would never come due again), and `attemptCount` is what it counts
+     * toward MAX_ATTEMPTS (so the retry would give up on its first pass).
+     */
+    @Query(
+        "UPDATE outbox SET nextAttemptAt = :now, attemptCount = 0, lastError = NULL " +
+            "WHERE entityLocalId = :entityLocalId",
+    )
+    suspend fun rearmForRetry(entityLocalId: String, now: Instant): Int
+
     @Update
     suspend fun update(entry: OutboxEntity)
 

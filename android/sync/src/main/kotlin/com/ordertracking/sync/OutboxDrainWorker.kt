@@ -58,9 +58,18 @@ class OutboxDrainWorker(
     private val apiService: ApiService,
     private val orderWriter: OrderWriter,
     private val json: Json,
+    private val hasSession: suspend () -> Boolean,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        // Every entry here is an authenticated write, so with no session they
+        // all come back 401 -- which classifyFailure reads as Permanent,
+        // since it is a 4xx that isn't 409. One run logged out would
+        // therefore mark every pending order FAILED on the first attempt,
+        // for a reason that has nothing to do with the orders. Leave them
+        // queued and wait for a session instead.
+        if (!hasSession()) return Result.success()
+
         val outboxDao = db.outboxDao()
         val dueEntries = outboxDao.dueEntries(Instant.now())
 
@@ -158,13 +167,14 @@ class OutboxDrainWorkerFactory(
     private val apiService: ApiService,
     private val orderWriter: OrderWriter,
     private val json: Json,
+    private val hasSession: suspend () -> Boolean,
 ) : WorkerFactory() {
     override fun createWorker(
         appContext: Context,
         workerClassName: String,
         workerParameters: WorkerParameters,
     ): ListenableWorker? = if (workerClassName == OutboxDrainWorker::class.java.name) {
-        OutboxDrainWorker(appContext, workerParameters, db, apiService, orderWriter, json)
+        OutboxDrainWorker(appContext, workerParameters, db, apiService, orderWriter, json, hasSession)
     } else {
         null
     }
