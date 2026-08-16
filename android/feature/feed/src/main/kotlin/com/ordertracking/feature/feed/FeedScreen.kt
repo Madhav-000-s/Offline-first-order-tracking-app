@@ -1,5 +1,6 @@
 package com.ordertracking.feature.feed
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +18,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -28,6 +33,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import com.ordertracking.core.designsystem.FullScreenLoading
 import com.ordertracking.core.model.Restaurant
 import kotlinx.coroutines.flow.Flow
@@ -126,16 +132,24 @@ private fun FeedPlaceholder(
 private fun RestaurantRow(restaurant: Restaurant, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column {
-            // The seed fixtures ship empty image_url values, and an AsyncImage
-            // with no source and no height collapses to nothing while still
-            // occupying a slot in the layout. Skipping it entirely keeps the
-            // card looking deliberate rather than half-loaded.
-            if (restaurant.imageUrl.isNotBlank()) {
+            // Collapse the image slot entirely when there is nothing to show
+            // -- either no URL at all, or a load that failed. A reserved
+            // 140dp of empty space reads as a broken layout, and an image
+            // host is exactly the dependency most likely to be unreachable
+            // on the device this runs on (an emulator often can't resolve
+            // DNS at all, and the whole point of this app is that it keeps
+            // working when the network doesn't).
+            var imageFailed by remember(restaurant.id) { mutableStateOf(false) }
+            if (restaurant.imageUrl.isNotBlank() && !imageFailed) {
                 AsyncImage(
                     model = restaurant.imageUrl,
                     contentDescription = restaurant.name,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().height(140.dp),
+                    onState = { state -> if (state is AsyncImagePainter.State.Error) imageFailed = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                 )
             }
             Column(modifier = Modifier.padding(16.dp)) {
