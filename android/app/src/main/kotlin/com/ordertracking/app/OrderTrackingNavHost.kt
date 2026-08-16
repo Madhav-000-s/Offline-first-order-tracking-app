@@ -9,6 +9,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -21,6 +23,10 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.ordertracking.app.auth.LoginEffect
+import com.ordertracking.app.auth.LoginScreen
+import com.ordertracking.app.auth.LoginViewModel
+import com.ordertracking.core.designsystem.FullScreenLoading
 import com.ordertracking.core.network.ws.OrderWebSocketClient
 import com.ordertracking.feature.feed.FeedEffect
 import com.ordertracking.feature.feed.FeedIntent
@@ -38,8 +44,10 @@ import com.ordertracking.feature.orders.OrdersListViewModel
 import com.ordertracking.feature.tracking.TrackingRepository
 import com.ordertracking.feature.tracking.TrackingScreen
 import com.ordertracking.feature.tracking.TrackingViewModel
+import kotlinx.coroutines.launch
 
 private object Routes {
+    const val LOGIN = "login"
     const val FEED = "feed"
     const val ORDERS = "orders"
     const val MENU = "menu/{restaurantId}"
@@ -55,8 +63,71 @@ private object Routes {
 @Composable
 fun OrderTrackingNavHost(navController: NavHostController = rememberNavController()) {
     val container = LocalAppContainer.current
+    val session by container.sessionManager.session.collectAsState(initial = null)
 
-    NavHost(navController = navController, startDestination = Routes.FEED) {
+    // DataStore is asynchronous, so on the first frame the app genuinely does
+    // not know yet. Holding a spinner for that frame beats flashing the login
+    // form at someone who is already signed in.
+    when (val resolved = session) {
+        null -> FullScreenLoading()
+        else -> AuthAwareNavHost(navController, resolved.isLoggedIn)
+    }
+}
+
+@Composable
+private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boolean) {
+    val container = LocalAppContainer.current
+    val scope = rememberCoroutineScope()
+
+    // Captured once on purpose: NavHost builds its graph from the first
+    // startDestination it is given, so a later session change has to be
+    // handled by navigating (below) rather than by swapping this value.
+    val startDestination = remember { if (isLoggedIn) Routes.FEED else Routes.LOGIN }
+
+    // Covers both halves of losing a session: an explicit logout, and a
+    // refresh token the server rejected outright (TokenAuthenticator clears
+    // the store and calls back into SessionManager, which lands here).
+    LaunchedEffect(isLoggedIn) {
+        val current = navController.currentDestination?.route
+        // A null route means NavHost hasn't installed its graph yet, so
+        // there is nothing to navigate away from -- and startDestination
+        // above has already accounted for starting logged out.
+        if (!isLoggedIn && current != null && current != Routes.LOGIN) {
+            navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+        }
+    }
+
+    NavHost(navController = navController, startDestination = startDestination) {
+        composable(Routes.LOGIN) {
+            val viewModel: LoginViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        LoginViewModel(
+                            signIn = { email, password -> container.authRepository.login(email, password) },
+                            createAccount = { email, password, name ->
+                                container.authRepository.register(email, password, name)
+                            },
+                        )
+                    }
+                },
+            )
+            LaunchedEffect(Unit) {
+                viewModel.effects.collectAndHandle { effect ->
+                    when (effect) {
+                        // popUpTo(0) so nothing survives behind the feed:
+                        // pressing back from a freshly authenticated app
+                        // should exit it, not return to a sign-in form for a
+                        // session that now exists.
+                        is LoginEffect.Authenticated -> navController.navigate(Routes.FEED) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                }
+            }
+            val state by viewModel.uiState.collectAsState()
+            LoginScreen(state = state, onIntent = viewModel::onIntent)
+        }
+
         composable(Routes.FEED) {
             val viewModel: FeedViewModel = viewModel(
                 factory = viewModelFactory { initializer { FeedViewModel(container.restaurantRepository) } },
@@ -68,7 +139,19 @@ fun OrderTrackingNavHost(navController: NavHostController = rememberNavControlle
                     }
                 }
             }
-            FeedScreen(restaurants = viewModel.restaurants, onIntent = viewModel::onIntent)
+            Box(modifier = Modifier.fillMaxSize()) {
+                FeedScreen(restaurants = viewModel.restaurants, onIntent = viewModel::onIntent)
+                // Overlaid here rather than built into :feature:feed for the
+                // same reason the sync-log button is overlaid on the orders
+                // list: the feature module has no business knowing the app
+                // has a session, and :app is the only module that does.
+                ExtendedFloatingActionButton(
+                    onClick = { scope.launch { container.authRepository.logout() } },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) {
+                    Text("Log out")
+                }
+            }
         }
 
         composable(Routes.MENU) { backStackEntry ->

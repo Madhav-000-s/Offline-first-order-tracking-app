@@ -25,9 +25,9 @@ Full architecture and the reasoning behind every decision: **[DESIGN.md](./DESIG
 
 | | |
 |---|---|
-| **Client** | 14-module Gradle graph · 90 Kotlin files · ~5.3k LOC |
+| **Client** | 14-module Gradle graph · 93 Kotlin files · ~5.9k LOC |
 | **Backend** | FastAPI + SQLAlchemy 2.0 async + Alembic · 14 endpoints · ~2.5k LOC |
-| **Tests** | 47 JVM tests across 12 suites (Android) + 9 integration tests on a real Postgres (backend) |
+| **Tests** | 53 JVM tests across 12 suites (Android) + 9 integration tests on a real Postgres (backend) |
 | **Infra** | One `docker compose up` — Postgres, Redis, API, migrations |
 
 ---
@@ -217,7 +217,12 @@ whole thing deterministic and CI-friendly with no device farm in the loop.
 
 ## 3-minute demo script
 
-1. **Cold start, offline.** Launch in airplane mode. Feed and existing orders render
+0. **Sign in once, online.** A fresh install opens on the login screen and "Create
+   account" registers against `POST /v1/auth/register`. This is the one step that
+   genuinely needs the network: without a token there is no authenticated request to
+   queue, so there is nothing for the outbox to be offline-first *about*. Every step
+   below happens after this, and the session survives process death.
+1. **Cold start, offline.** Relaunch in airplane mode. Feed and existing orders render
    immediately from Room — nothing spins waiting for a network that isn't there.
 2. **Place an order offline.** It appears instantly, badged "Waiting to send". Kill the
    app, reopen it — still there, still pending, because it and its outbox row landed in

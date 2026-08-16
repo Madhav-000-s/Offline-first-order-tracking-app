@@ -68,6 +68,9 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    // :core:network keeps Retrofit on `implementation`, so AuthRepository's
+    // HttpException status mapping needs it declared here too.
+    implementation(libs.retrofit.core)
     implementation(libs.retrofit.kotlinx.serialization)
     implementation(libs.okhttp.core)
     implementation(libs.androidx.work.runtime.ktx)
@@ -77,4 +80,6 @@ dependencies {
     implementation(libs.androidx.security.crypto)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
 }

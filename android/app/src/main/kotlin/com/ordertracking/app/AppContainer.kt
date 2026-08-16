@@ -3,6 +3,7 @@ package com.ordertracking.app
 import android.content.Context
 import androidx.room.Room
 import androidx.work.WorkManager
+import com.ordertracking.app.auth.AuthRepository
 import com.ordertracking.core.common.AppClock
 import com.ordertracking.core.common.SystemAppClock
 import com.ordertracking.core.data.merge.OrderWriter
@@ -40,9 +41,19 @@ class AppContainer(context: Context) {
     val tokenStore: TokenStore = TokenStore(appContext)
     val sessionManager: SessionManager = SessionManager(appContext)
 
-    private val networkModule = NetworkModule(baseUrl = BASE_URL, tokenStore = tokenStore, debug = BuildConfig.DEBUG)
+    private val networkModule = NetworkModule(
+        baseUrl = BASE_URL,
+        tokenStore = tokenStore,
+        debug = BuildConfig.DEBUG,
+        // The authenticator clears the tokens itself; this keeps the
+        // non-secret session flag the nav graph gates on from drifting out
+        // of sync with them.
+        onAuthLost = { sessionManager.clear() },
+    )
     val apiService: ApiService = networkModule.apiService
     val json: Json = networkModule.json
+
+    val authRepository: AuthRepository = AuthRepository(apiService, tokenStore, sessionManager)
 
     val clock: AppClock = SystemAppClock()
 

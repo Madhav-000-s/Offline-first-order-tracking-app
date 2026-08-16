@@ -8,6 +8,7 @@ import okhttp3.Authenticator
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
+import retrofit2.HttpException
 
 /**
  * Handles 401 -> refresh -> retry. Guarded by a Mutex so twelve concurrent
@@ -15,9 +16,14 @@ import okhttp3.Route
  * is a plain suspend function backed by a *separate* OkHttpClient with no
  * auth interceptor/authenticator of its own -- routing the refresh request
  * through this same authenticated client would recurse.
+ *
+ * This rotates an existing session; it can never create one. The initial
+ * pair comes from `AuthRepository` in `:app`, and [onAuthLost] is how this
+ * class tells that layer the session is gone for good.
  */
 class TokenAuthenticator(
     private val tokenStore: TokenStore,
+    private val onAuthLost: suspend () -> Unit = {},
     private val refreshCall: suspend (refreshToken: String) -> TokenPair,
 ) : Authenticator {
 
@@ -40,6 +46,21 @@ class TokenAuthenticator(
                     tokenStore.save(newTokens)
                     newTokens.accessToken
                 } catch (e: Exception) {
+                    // A 4xx from /auth/refresh means the refresh token itself
+                    // is dead -- expired, or revoked because reuse was
+                    // detected on its family -- and no amount of retrying
+                    // fixes that. Drop the session so the app routes back to
+                    // login instead of silently 401ing forever.
+                    //
+                    // A *network* failure must not do the same. This app is
+                    // offline-first; signing the user out every time they
+                    // open it in airplane mode would be a bug wearing a
+                    // security costume. Keep the tokens and let the next
+                    // authenticated request try again.
+                    if (e is HttpException && e.code() in 400..499) {
+                        tokenStore.clear()
+                        onAuthLost()
+                    }
                     null
                 }
             }

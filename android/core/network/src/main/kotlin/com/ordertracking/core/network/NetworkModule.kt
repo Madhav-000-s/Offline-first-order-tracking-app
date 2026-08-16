@@ -21,7 +21,13 @@ import retrofit2.Retrofit
  * story (DESIGN.md §13).
  */
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-class NetworkModule(baseUrl: String, tokenStore: TokenStore, debug: Boolean) {
+class NetworkModule(
+    baseUrl: String,
+    tokenStore: TokenStore,
+    debug: Boolean,
+    /** Invoked when the refresh token is rejected outright -- see [TokenAuthenticator]. */
+    onAuthLost: suspend () -> Unit = {},
+) {
 
     val json: Json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
@@ -36,7 +42,7 @@ class NetworkModule(baseUrl: String, tokenStore: TokenStore, debug: Boolean) {
 
     private val plainApi: ApiService = plainRetrofit.create(ApiService::class.java)
 
-    private val authenticator = TokenAuthenticator(tokenStore) { refreshToken ->
+    private val authenticator = TokenAuthenticator(tokenStore, onAuthLost) { refreshToken ->
         val result = plainApi.refresh(RefreshRequestDto(refreshToken))
         TokenPair(result.access_token, result.refresh_token)
     }
