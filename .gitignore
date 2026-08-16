@@ -40,3 +40,8 @@ Thumbs.db
 
 # Android Studio creates one at the repo root too, not just under android/.
 .idea/
+
+# Stray SQLite dumps pulled off a device while debugging.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
