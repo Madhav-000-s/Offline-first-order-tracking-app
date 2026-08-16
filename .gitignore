@@ -37,3 +37,6 @@ android/**/google-services.json
 Thumbs.db
 *.log
 /scratch/
+
+# Android Studio creates one at the repo root too, not just under android/.
+.idea/
