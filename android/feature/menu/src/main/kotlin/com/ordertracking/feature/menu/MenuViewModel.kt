@@ -3,6 +3,7 @@ package com.ordertracking.feature.menu
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ordertracking.core.common.Outcome
+import com.ordertracking.core.common.asSuccess
 import com.ordertracking.core.data.repository.RestaurantRepository
 import com.ordertracking.core.model.MenuItem
 import com.ordertracking.sync.PlaceOrderInput
@@ -25,12 +26,14 @@ data class MenuUiState(
     val totalMinor: Long = 0,
     val isPlacingOrder: Boolean = false,
     val isLoading: Boolean = true,
+    val errorMessage: String? = null,
 )
 
 sealed interface MenuIntent {
     data class Increment(val menuItemId: String) : MenuIntent
     data class Decrement(val menuItemId: String) : MenuIntent
     data object PlaceOrder : MenuIntent
+    data object Retry : MenuIntent
 }
 
 sealed interface MenuEffect {
@@ -42,10 +45,39 @@ class MenuViewModel(
     private val restaurantId: String,
     restaurantRepository: RestaurantRepository,
     private val placeOrder: suspend (PlaceOrderInput) -> Outcome<String>,
+    /**
+     * Pulls this restaurant's menu from the network into Room.
+     *
+     * Without it the screen depends entirely on the background delta sync
+     * having already happened to reach this particular restaurant -- and
+     * since that sync pages 200 rows at a time across every resource, a
+     * restaurant near the end of the list renders an empty menu for an
+     * unbounded amount of time. Observing Room is the right read path; it
+     * still needs something to put the rows there on demand.
+     */
+    private val refreshMenu: suspend (restaurantId: String) -> Outcome<Unit> = { Unit.asSuccess() },
 ) : ViewModel() {
 
     private val cartQuantities = MutableStateFlow<Map<String, Int>>(emptyMap())
     private val isPlacingOrder = MutableStateFlow(false)
+    private val isRefreshing = MutableStateFlow(true)
+    private val errorMessage = MutableStateFlow<String?>(null)
+
+    init {
+        refresh()
+    }
+
+    private fun refresh() {
+        viewModelScope.launch {
+            isRefreshing.value = true
+            errorMessage.value = null
+            when (val outcome = refreshMenu(restaurantId)) {
+                is Outcome.Success -> Unit
+                is Outcome.Failure -> errorMessage.value = outcome.error.message ?: "Couldn't load the menu"
+            }
+            isRefreshing.value = false
+        }
+    }
 
     private val effectChannel = Channel<MenuEffect>(Channel.BUFFERED)
     val effects: Flow<MenuEffect> = effectChannel.receiveAsFlow()
@@ -54,7 +86,9 @@ class MenuViewModel(
         restaurantRepository.observeMenu(restaurantId),
         cartQuantities,
         isPlacingOrder,
-    ) { menuItems, quantities, placing ->
+        isRefreshing,
+        errorMessage,
+    ) { menuItems, quantities, placing, refreshing, error ->
         val cart = menuItems.mapNotNull { item ->
             val qty = quantities[item.id] ?: 0
             if (qty > 0) CartLine(item, qty) else null
@@ -64,7 +98,11 @@ class MenuViewModel(
             cart = cart,
             totalMinor = cart.sumOf { it.menuItem.priceMinor * it.quantity },
             isPlacingOrder = placing,
-            isLoading = false,
+            // Only a spinner when there is genuinely nothing to show. A
+            // cached menu keeps rendering while the refresh runs behind it,
+            // which is the whole point of reading from Room.
+            isLoading = refreshing && menuItems.isEmpty(),
+            errorMessage = error.takeIf { menuItems.isEmpty() },
         )
     // Eagerly, not WhileSubscribed: submitOrder() below reads `uiState.value`
     // directly to decide what to place, so it can't be relying on a shared
@@ -77,6 +115,7 @@ class MenuViewModel(
             is MenuIntent.Increment -> cartQuantities.update(intent.menuItemId, +1)
             is MenuIntent.Decrement -> cartQuantities.update(intent.menuItemId, -1)
             is MenuIntent.PlaceOrder -> submitOrder()
+            is MenuIntent.Retry -> refresh()
         }
     }
 

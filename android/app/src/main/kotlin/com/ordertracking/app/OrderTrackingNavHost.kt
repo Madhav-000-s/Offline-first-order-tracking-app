@@ -176,6 +176,7 @@ private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boole
                             restaurantId = restaurantId,
                             restaurantRepository = container.restaurantRepository,
                             placeOrder = { input -> container.placeOrderUseCase.invoke(input) },
+                            refreshMenu = { id -> container.restaurantRepository.refreshMenu(id) },
                         )
                     }
                 },

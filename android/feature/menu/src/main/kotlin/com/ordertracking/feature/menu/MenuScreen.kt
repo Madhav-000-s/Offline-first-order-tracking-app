@@ -2,6 +2,7 @@ package com.ordertracking.feature.menu
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.ordertracking.core.designsystem.FullScreenLoading
 import com.ordertracking.core.model.MenuItem
@@ -49,10 +51,32 @@ fun MenuScreen(
             }
         },
     ) { padding ->
-        if (state.isLoading) {
-            FullScreenLoading(Modifier.padding(padding))
-        } else {
-            LazyColumn(modifier = Modifier.padding(padding)) {
+        when {
+            state.isLoading -> FullScreenLoading(Modifier.padding(padding))
+
+            // An empty menu used to render as an empty LazyColumn, which is
+            // an unexplained blank screen -- and blank is exactly what you
+            // get before the background sync happens to reach this
+            // restaurant. Say what went wrong and offer the retry.
+            state.menuItems.isEmpty() -> Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    state.errorMessage ?: "This restaurant has no menu items yet.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                )
+                Button(
+                    onClick = { onIntent(MenuIntent.Retry) },
+                    modifier = Modifier.padding(top = 16.dp),
+                ) {
+                    Text("Retry")
+                }
+            }
+
+            else -> LazyColumn(modifier = Modifier.padding(padding)) {
                 items(state.menuItems, key = { it.id }) { item ->
                     val quantity = state.cart.firstOrNull { it.menuItem.id == item.id }?.quantity ?: 0
                     MenuItemRow(item, quantity, onIntent)
