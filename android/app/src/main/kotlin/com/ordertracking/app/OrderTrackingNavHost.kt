@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -166,6 +167,7 @@ private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boole
 
         composable(Routes.MENU) { backStackEntry ->
             val restaurantId = backStackEntry.arguments?.getString("restaurantId").orEmpty()
+            val snackbarHostState = remember { SnackbarHostState() }
             val viewModel: MenuViewModel = viewModel(
                 key = restaurantId,
                 factory = viewModelFactory {
@@ -184,15 +186,16 @@ private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boole
                         is MenuEffect.OrderPlaced -> navController.navigate(Routes.orderDetail(effect.localId)) {
                             popUpTo(Routes.FEED)
                         }
-                        is MenuEffect.ShowSnackbar -> Unit // wired to a SnackbarHost in a fuller build
+                        is MenuEffect.ShowSnackbar -> snackbarHostState.showSnackbar(effect.message)
                     }
                 }
             }
             val state by viewModel.uiState.collectAsState()
-            MenuScreen(state = state, onIntent = viewModel::onIntent)
+            MenuScreen(state = state, onIntent = viewModel::onIntent, snackbarHostState = snackbarHostState)
         }
 
         composable(Routes.ORDERS) {
+            val snackbarHostState = remember { SnackbarHostState() }
             val viewModel: OrdersListViewModel = viewModel(
                 factory = viewModelFactory {
                     initializer {
@@ -208,13 +211,13 @@ private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boole
                 viewModel.effects.collectAndHandle { effect ->
                     when (effect) {
                         is OrdersListEffect.NavigateToDetail -> navController.navigate(Routes.orderDetail(effect.localId))
-                        is OrdersListEffect.ShowSnackbar -> Unit
+                        is OrdersListEffect.ShowSnackbar -> snackbarHostState.showSnackbar(effect.message)
                     }
                 }
             }
             val state by viewModel.uiState.collectAsState()
             Box(modifier = Modifier.fillMaxSize()) {
-                OrdersListScreen(state = state, onIntent = viewModel::onIntent)
+                OrdersListScreen(state = state, onIntent = viewModel::onIntent, snackbarHostState = snackbarHostState)
                 // The single best interview demo in the project (DESIGN.md §4):
                 // fifteen seconds in here makes the merge engine's decisions
                 // visible instead of just trusted.
@@ -236,6 +239,7 @@ private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boole
 
         composable(Routes.ORDER_DETAIL) { backStackEntry ->
             val localId = backStackEntry.arguments?.getString("localId").orEmpty()
+            val snackbarHostState = remember { SnackbarHostState() }
             val viewModel: OrderDetailViewModel = viewModel(
                 key = localId,
                 factory = viewModelFactory {
@@ -252,12 +256,12 @@ private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boole
                 viewModel.effects.collectAndHandle { effect ->
                     when (effect) {
                         is OrderDetailEffect.NavigateToTracking -> navController.navigate(Routes.tracking(effect.localId))
-                        is OrderDetailEffect.ShowSnackbar -> Unit
+                        is OrderDetailEffect.ShowSnackbar -> snackbarHostState.showSnackbar(effect.message)
                     }
                 }
             }
             val state by viewModel.uiState.collectAsState()
-            OrderDetailScreen(state = state, onIntent = viewModel::onIntent)
+            OrderDetailScreen(state = state, onIntent = viewModel::onIntent, snackbarHostState = snackbarHostState)
         }
 
         composable(Routes.TRACKING) { backStackEntry ->
@@ -289,6 +293,11 @@ private fun AuthAwareNavHost(navController: NavHostController, isLoggedIn: Boole
     }
 }
 
-private suspend fun <T> kotlinx.coroutines.flow.Flow<T>.collectAndHandle(action: (T) -> Unit) {
+/**
+ * `action` is suspend so a handler can call `SnackbarHostState.showSnackbar`,
+ * which suspends until the snackbar is dismissed. Collection is sequential,
+ * so a burst of messages queues rather than overwriting.
+ */
+private suspend fun <T> kotlinx.coroutines.flow.Flow<T>.collectAndHandle(action: suspend (T) -> Unit) {
     collect { action(it) }
 }

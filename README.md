@@ -181,24 +181,43 @@ API docs at `http://localhost:8000/docs`:
 
 <img src="docs/images/swagger_docs.png" width="700" alt="Live FastAPI Swagger docs for the order-tracking API"/>
 
-Then:
+Seed some demo data — simplest inside the running container, which already has the
+dependencies and the right `DATABASE_URL`:
+
+```bash
+docker compose exec api python -m scripts.seed --reset --count 50
+```
+
+Restaurants and menu items only; there is no seeded user. Create an account through
+the app's own register screen — that is the intended first step.
+
+Then build the client:
 
 ```bash
 cd android && ./gradlew assembleDebug
 ```
 
-Seed some demo data:
+### Running it on an emulator
 
-```bash
-cd backend
-python -m scripts.seed --reset --count 500
-```
+`AppContainer` points at `http://10.0.2.2:8000` — the Android emulator's alias for the
+host machine's localhost — so the app expects **the emulator, not a physical device**.
+On a device, change `BASE_URL`/`WS_URL` to the host's LAN address and add that address
+to `res/xml/network_security_config.xml`.
+
+That config exists because `targetSdk 34` blocks cleartext HTTP by default. Cleartext
+is permitted for the loopback addresses only, rather than flipping
+`usesCleartextTraffic` on the whole app, so a future build pointing at a production
+host can't silently downgrade.
 
 ### Optional credentials
 
 Real map tiles need a `MAPS_API_KEY` in `android/local.properties`; it's gitignored,
 and **the project builds and every test passes without it** — it only affects what
-renders at runtime, not correctness.
+renders at runtime, not correctness. The tracking screen additionally needs an
+emulator image with **Google APIs** (Play services), since `GoogleMap` won't
+initialise without them. It is the one screen no automated test covers — Paparazzi
+renders Compose on the JVM and a native `MapView` isn't Compose — so it's worth a dry
+run before demoing.
 
 Push is backend-only today: `push_service` builds a *data-only* FCM message (never a
 `notification` block, so a payload the client hasn't validated can't post a

@@ -11,8 +11,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -24,9 +27,13 @@ fun MenuScreen(
     state: MenuUiState,
     onIntent: (MenuIntent) -> Unit,
     modifier: Modifier = Modifier,
+    // Defaulted so a caller that has no interest in one-shot messages
+    // (Paparazzi, previews) still compiles unchanged.
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
 ) {
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (state.cart.isNotEmpty()) {
                 Row(

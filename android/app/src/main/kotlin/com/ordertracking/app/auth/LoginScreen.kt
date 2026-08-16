@@ -3,8 +3,11 @@ package com.ordertracking.app.auth
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -234,10 +237,14 @@ fun LoginScreen(
                     .padding(top = 24.dp),
             ) {
                 if (state.isSubmitting) {
+                    // Explicit size: the default 40dp indicator is taller than
+                    // the button's own minimum height and stretches it.
                     CircularProgressIndicator(
-                        modifier = Modifier.padding(end = 8.dp),
+                        modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
                     )
+                    Spacer(Modifier.width(8.dp))
                 }
                 Text(if (state.mode == AuthMode.SIGN_IN) "Sign in" else "Create account")
             }

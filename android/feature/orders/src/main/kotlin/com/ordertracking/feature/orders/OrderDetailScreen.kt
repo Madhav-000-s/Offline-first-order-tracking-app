@@ -13,22 +13,31 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ordertracking.core.model.Order
 import com.ordertracking.core.model.OrderEvent
 import com.ordertracking.core.model.OrderStatus
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun OrderDetailScreen(
     state: OrderDetailUiState,
     onIntent: (OrderDetailIntent) -> Unit,
     modifier: Modifier = Modifier,
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
 ) {
-    Scaffold(modifier = modifier) { padding ->
+    Scaffold(
+        modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
         when {
             state.isLoading -> Column(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -81,8 +90,19 @@ private fun OrderDetailContent(
 
 @Composable
 private fun TimelineRow(event: OrderEvent) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(event.status.name, style = MaterialTheme.typography.bodyMedium)
-        Text(event.occurredAt.toString(), style = MaterialTheme.typography.bodySmall)
+        Text(
+            // Instant.toString() is the full ISO-8601 stamp; the date is the
+            // same for every event in a demo, so only the time earns space.
+            event.occurredAt.atZone(ZoneId.systemDefault()).format(TIME_FORMAT),
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
+
+private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
