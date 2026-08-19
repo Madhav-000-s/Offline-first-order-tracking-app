@@ -2,7 +2,7 @@
 
 **A food-delivery order tracker where the network is optional.** Android (Kotlin ·
 Compose · Room-as-single-source-of-truth) talking to an async FastAPI backend, built
-around one hard problem: *three delivery channels, no ordering guarantees, one
+around one hard problem: *two delivery channels, no ordering guarantees, one
 correct answer.*
 
 ![Kotlin](https://img.shields.io/badge/Kotlin-1.9-7F52FF?logo=kotlin&logoColor=white)
@@ -17,7 +17,12 @@ correct answer.*
 > off a DAO, and every byte that arrives from REST or the WebSocket is funnelled
 > through a single writer that merges it into SQLite.
 
-Full architecture and the reasoning behind every decision: **[DESIGN.md](./DESIGN.md)**.
+**[ARCHITECTURE.md](./ARCHITECTURE.md)** — the system as built, verified against the
+running app: module graph, data flow, the merge rules, a decision log, and an honest
+account of what is wired versus what is only designed.
+
+**[DESIGN.md](./DESIGN.md)** — the original design intent, written during the build.
+Parts of it have drifted from the code; ARCHITECTURE.md §16 lists where.
 
 ---
 
@@ -115,10 +120,12 @@ mid-scan can't cause skips. Deletions ride the same protocol as tombstones
 "unchanged since your cursor", so being gone has to be an explicit fact on the wire.
 Note that a *cancelled* order is not a deleted one: it stays in the user's history.
 
-**Sync triggers that collapse under load.** App foreground, a 15-minute periodic tick,
-pull-to-refresh, and WS-sequence-gap detection all enqueue the *same* unique work name
-with `KEEP` — so a burst collapses into one sync run. Pull-to-refresh is the one
-exception, using `REPLACE`, because the user explicitly asked for a fresh one.
+**Sync triggers that collapse under load.** App foreground and WS-sequence-gap
+detection enqueue the same unique work name with `KEEP`, so a burst collapses into one
+run. Pull-to-refresh uses `REPLACE` on that same name, because the user explicitly
+asked for a fresh one. The 15-minute periodic tick necessarily owns a separate slot —
+WorkManager won't let a `PeriodicWorkRequest` share a unique name with a one-time
+request — so it's the one trigger that can overlap the others.
 
 **WebSocket as an accelerator, never as truth.** Live frames make the UI feel instant,
 but they're merged through the same guard as everything else. Every published frame
